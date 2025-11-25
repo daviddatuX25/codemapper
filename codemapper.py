@@ -6,6 +6,7 @@ Usage:
   codemapper.exe --src ./project --folders app,src --files config.php
   codemapper.exe --config myconfig
   codemapper.exe --src ./project --savetoconfig myconfig
+  codemapper.exe --oneshot  (non-interactive mode with timestamp and auto-open)
 """
 
 import os
@@ -40,8 +41,9 @@ COMMON_SKIP_FOLDERS = {
 }
 
 class CodeMapGenerator:
-    def __init__(self, config=None):
+    def __init__(self, config=None, oneshot=False):
         self.config = config or {}
+        self.oneshot = oneshot
         self.text_extensions = set(self.config.get('text_extensions', DEFAULT_TEXT_EXTENSIONS))
         self.src_folders = self.config.get('src', ['.'])
         self.folders = self.config.get('folders', [])
@@ -160,13 +162,19 @@ class CodeMapGenerator:
         default_output_folder = base_dir / "codemapper" / "output"
         default_output_folder.mkdir(parents=True, exist_ok=True)
         
-        # Ask if user wants timestamp
-        timestamp = datetime.now().strftime("%m%d%y-%H%M")
-        use_timestamp = input(f"Include timestamp in file name? (y/n) [{timestamp}]: ").strip().lower()
-        if use_timestamp in ('y', 'yes', ''):
+        # Determine filename based on mode
+        if self.oneshot:
+            # One-shot mode: always use timestamp
+            timestamp = datetime.now().strftime("%m%d%y-%H%M")
             filename = f"code_map_{timestamp}.txt"
         else:
-            filename = "code_map.txt"
+            # Interactive mode: ask user
+            timestamp = datetime.now().strftime("%m%d%y-%H%M")
+            use_timestamp = input(f"Include timestamp in file name? (y/n) [{timestamp}]: ").strip().lower()
+            if use_timestamp in ('y', 'yes', ''):
+                filename = f"code_map_{timestamp}.txt"
+            else:
+                filename = "code_map.txt"
         
         # Set output path
         self.output = Path(self.config.get('output', default_output_folder / filename))
@@ -243,25 +251,34 @@ class CodeMapGenerator:
         print(f"  Skipped: {self.stats['skipped_files']}")
         print(f"  Size: {self.stats['total_size'] / (1024*1024):.2f} MB")
         
-        # Prompt to open
-        try:
-            while True:
-                choice = input("\nOpen output? [file/folder/none]: ").strip().lower()
-                if choice == 'file':
-                    print(f"Opening file: {self.output}")
-                    os.startfile(self.output)
-                    break
-                elif choice == 'folder':
-                    folder_path = self.output.parent.resolve()
-                    print(f"Opening folder: {folder_path}")
-                    os.startfile(folder_path)
-                    break
-                elif choice in ('none', ''):
-                    break
-                else:
-                    print("Please type 'file', 'folder', or 'none'.")
-        except Exception as e:
-            print(f"⚠ Could not open: {e}")
+        # Handle opening based on mode
+        if self.oneshot:
+            # One-shot mode: automatically open the file
+            try:
+                print(f"\nOpening file: {self.output}")
+                os.startfile(self.output)
+            except Exception as e:
+                print(f"⚠ Could not open file: {e}")
+        else:
+            # Interactive mode: prompt user
+            try:
+                while True:
+                    choice = input("\nOpen output? [file/folder/none]: ").strip().lower()
+                    if choice == 'file':
+                        print(f"Opening file: {self.output}")
+                        os.startfile(self.output)
+                        break
+                    elif choice == 'folder':
+                        folder_path = self.output.parent.resolve()
+                        print(f"Opening folder: {folder_path}")
+                        os.startfile(folder_path)
+                        break
+                    elif choice in ('none', ''):
+                        break
+                    else:
+                        print("Please type 'file', 'folder', or 'none'.")
+            except Exception as e:
+                print(f"⚠ Could not open: {e}")
         
         return True
 
@@ -357,6 +374,9 @@ Examples:
   # Scan current directory (or use default config if exists)
   codemapper.exe
   
+  # One-shot mode (no prompts, auto timestamp, auto-open file)
+  codemapper.exe --oneshot
+  
   # Scan specific source folders
   codemapper.exe --src ./project --src ./another
   
@@ -395,6 +415,7 @@ Examples:
     parser.add_argument('--extensions', help='Comma-separated list of text file extensions')
     parser.add_argument('--config', help='Load configuration from config folder')
     parser.add_argument('--savetoconfig', nargs='?', const='default', help='Save current command as config')
+    parser.add_argument('--oneshot', action='store_true', help='Non-interactive mode: auto timestamp, auto-open file')
     
     args = parser.parse_args()
     
@@ -467,7 +488,7 @@ Examples:
             config['text_extensions'] = args.extensions.split(',')
     
     # Generate the map
-    generator = CodeMapGenerator(config)
+    generator = CodeMapGenerator(config, oneshot=args.oneshot)
     success = generator.generate_map()
     sys.exit(0 if success else 1)
 
